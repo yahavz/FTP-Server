@@ -1,20 +1,28 @@
 #ifndef CLAYWORM_H_
 #define CLAYWORM_H_
 
-#include <Windows.h>
 #include <WinSock2.h>
+#include <Windows.h>
 #include <tchar.h>
+#include <stdint.h>
 
-BOOL ClayWorm_Initialize();
+#define MAX_PACKET (10*1024)
+#define ADDRESS_MAX_LENGTH	(16)
 
-BOOL ClayWorm_Cleanup();
 
-BOOL ClayWorm_Bind(PTCHAR ip, unsigned short port);
+typedef struct {
+	TCHAR address[16];
+	uint16_t port;
+} ClayWormAddress;
+
+BOOL ClayWorm_Initialize(uint16_t port_to_listen);
+
+void ClayWorm_Cleanup();
 
 BOOL ClayWorm_Available();
 
-SIZE_T ClayWorm_Send(PBYTE data, SIZE_T dataLength, PADDRINFOA destination);
+BOOL ClayWorm_Send(uint8_t* data, uint32_t dataLength, ClayWormAddress* destination);
 
-SIZE_T ClayWorm_Receive(PBYTE data, SIZE_T dataLength, PADDRINFOA source);
+int ClayWorm_Receive(uint8_t* data, uint32_t dataLength, TCHAR source_address[ADDRESS_MAX_LENGTH]);
 
 #endif // !CLAYWORM_H_
