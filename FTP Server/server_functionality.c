@@ -7,7 +7,6 @@
 #include "../Protocol/protocol.h"
 #include "../File Handler/file_handler.h"
 
-#define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
 
 BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
 {
