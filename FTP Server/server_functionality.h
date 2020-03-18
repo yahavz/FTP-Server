@@ -1,7 +1,7 @@
 #include "../ClayWorm/clayworm.h"
 
-BOOL ServerHandshake(struct ClayWormAddress *clientAddress);
+BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file);
 
-BOOL SendFile(struct ClayWormAddress *clientAddress, PTCHAR filePath);
+BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file);
 
-BOOL Finish(struct ClayWormAddress *clientAddress);
+BOOL Finish(ClayWormAddress *clientAddress);
