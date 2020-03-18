@@ -12,6 +12,7 @@
 #define MAX_FRAGMENT_AT_ONCE (128)
 #define MAX_PHASE_INDEX ((MAXDWORD / 128) - 1)
 #define ACK_BITFIELD_SIZE (MAX_FRAGMENT_AT_ONCE / 8)
+#define CRC_SIZE (sizeof(((p_packet_headers)0)->crc))
 
 #define PACKET_HEADERS_SIZE (sizeof(packet_headers))
 #define SYN_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(syn_packet))
