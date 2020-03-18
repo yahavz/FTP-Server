@@ -18,6 +18,7 @@
 #define SYN_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(syn_packet))
 #define SYNACK_PACKET_SIZE (PACKET_HEADERS_SIZE)
 #define PSH_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(psh_packet))
+#define EOP_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(eop_packet))
 #define EOPACK_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(eopack_packet))
 #define FIN_PACKET_SIZE (PACKET_HEADERS_SIZE)
 
