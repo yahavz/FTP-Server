@@ -3,8 +3,10 @@
 
 #include <Windows.h>
 
-BOOL NextPhaseToChunks(HANDLE file);
+BOOL ReadPhaseAndWriteChunks(HANDLE inFile, USHORT chunkMaxSize);
 
-BOOL GatherChunks(USHORT phaseNumber);
+BOOL DeleteChunksTempFiles();
+
+BOOL GatherChunks(HANDLE outFile, USHORT chunkMaxSize);
 
 #endif // !FILE_HANDLER_H_
