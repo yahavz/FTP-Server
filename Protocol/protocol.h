@@ -10,13 +10,14 @@
 #define TYPE_FIN 0x10
 
 #define MAX_FRAGMENT_AT_ONCE (128)
+#define MAX_PHASE_INDEX ((MAXDWORD / 128) - 1)
 #define ACK_BITFIELD_SIZE (MAX_FRAGMENT_AT_ONCE / 8)
 
 #define PACKET_HEADERS_SIZE (sizeof(packet_headers))
 #define SYN_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(syn_packet))
 #define SYNACK_PACKET_SIZE (PACKET_HEADERS_SIZE)
 #define PSH_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(psh_packet))
-#define PSHACK_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(pshack_packet))
+#define EOPACK_PACKET_SIZE (PACKET_HEADERS_SIZE + sizeof(eopack_packet))
 #define FIN_PACKET_SIZE (PACKET_HEADERS_SIZE)
 
 #pragma pack(1)
@@ -27,10 +28,11 @@ typedef struct {
 }packet_headers, *p_packet_headers;
 
 typedef struct {
-	UINT64 numberOfChunks;
+	DWORD numberOfChunks;
 } syn_packet, *p_syn_packet;
 
 typedef struct {
+	USHORT fragSize;
 	DWORD fragPhase;
 	BYTE fragIndex;
 
@@ -45,10 +47,10 @@ typedef struct {
 typedef struct {
 	DWORD ackPhase;
 	BYTE ackField[ACK_BITFIELD_SIZE];
-} pshack_packet, *p_pshack_packet;
+} eopack_packet, *p_eopack_packet;
 
 #pragma pack()
 
-USHORT crc16(const UCHAR *data, USHORT size);
+USHORT crc16(const BYTE *data, USHORT size);
 
 #endif // !PROTOCOL_H_
