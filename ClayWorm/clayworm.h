@@ -23,6 +23,6 @@ BOOL ClayWorm_Available();
 
 BOOL ClayWorm_Send(uint8_t* data, uint32_t dataLength, ClayWormAddress* destination);
 
-int ClayWorm_Receive(uint8_t* data, uint32_t dataLength, TCHAR source_address[ADDRESS_MAX_LENGTH]);
+size_t ClayWorm_Receive(uint8_t* data, uint32_t dataLength, ClayWormAddress* source);
 
 #endif // !CLAYWORM_H_

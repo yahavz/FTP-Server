@@ -8,7 +8,7 @@ static BOOL is_initialized = FALSE;
 static BOOL is_peeked = FALSE;
 static int msg_peek_size = 0;
 static uint8_t msg_peek[MAX_PACKET] = { 0 };
-static uint8_t addr_peek[ADDRESS_MAX_LENGTH] = { 0 };
+static ClayWormAddress addr_peek = { 0 };
 
 BOOL ClayWorm_Initialize(uint16_t port_to_listen)
 {
@@ -112,7 +112,8 @@ BOOL ClayWorm_Available()
 	if ((msg_peek_size = recvfrom(receiving_socket, msg_peek, MAX_PACKET, 0, (SOCKADDR *)&sender_address, &sender_address_size)) > 0)
 	{
 		is_peeked = TRUE;
-		InetNtop(AF_INET, &(sender_address.sin_addr.S_un.S_addr), addr_peek, 16);
+		InetNtop(AF_INET, &(sender_address.sin_addr.S_un.S_addr), addr_peek.address, 16);
+		addr_peek.port = ntohs(sender_address.sin_port);
 	
 		return TRUE;
 	}
@@ -122,25 +123,26 @@ BOOL ClayWorm_Available()
 	}
 }
 
-int ClayWorm_Receive(uint8_t* data, uint32_t dataLength, TCHAR source_address[ADDRESS_MAX_LENGTH])
+size_t ClayWorm_Receive(uint8_t* data, uint32_t dataLength, ClayWormAddress* source)
 {
 	SOCKADDR_IN sender_address;
 	int sender_address_size = sizeof(sender_address);
 	int bytes_received;
 
-	if ((!is_initialized) || (data == NULL) || (dataLength > MAX_PACKET) || (source_address == NULL))
+	if ((!is_initialized) || (data == NULL) || (dataLength > MAX_PACKET) || (source == NULL))
 	{
 		return 0;
 	}
 
-	memset(source_address, 0, ADDRESS_MAX_LENGTH);
+	memset(source, 0, sizeof(ClayWormAddress));
 
 	if (!is_peeked)
 	{
 		bytes_received = recvfrom(receiving_socket, data, dataLength, 0, (SOCKADDR *)&sender_address, &sender_address_size);
 		if (bytes_received > 0)
 		{
-			InetNtop(AF_INET, &(sender_address.sin_addr.S_un.S_addr), source_address, ADDRESS_MAX_LENGTH);
+			InetNtop(AF_INET, &(sender_address.sin_addr.S_un.S_addr), source->address, ADDRESS_MAX_LENGTH);
+			source->port = ntohs(sender_address.sin_port);
 		}
 
 		return bytes_received;
@@ -149,8 +151,9 @@ int ClayWorm_Receive(uint8_t* data, uint32_t dataLength, TCHAR source_address[AD
 	{
 		is_peeked = FALSE;
 		memcpy(data, msg_peek, msg_peek_size);
-		memcpy(source_address, addr_peek, ADDRESS_MAX_LENGTH);
-		memset(addr_peek, 0, ADDRESS_MAX_LENGTH);
+		memcpy(&(source->address), &(addr_peek.address), ADDRESS_MAX_LENGTH);
+		source->port = addr_peek.port;
+		memset(&addr_peek, 0, sizeof(ClayWormAddress));
 		memset(msg_peek, 0, MAX_PACKET);
 
 		return msg_peek_size;
