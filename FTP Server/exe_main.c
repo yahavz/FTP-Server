@@ -1,4 +1,6 @@
+#include <WS2tcpip.h>
 #include <Windows.h>
+#include <stdio.h>
 #include <winsvc.h>
 #include <tchar.h>
 #include "../ClayWorm/clayworm.h"
@@ -6,93 +8,101 @@
 
 #define SERVICE_NAME  _T("FTPServer")
 
-typedef struct {
-	int argc;
-	PTCHAR * argv;
-} PARAMS, *PPARAMS;
+
 
 SERVICE_STATUS        g_ServiceStatus = { 0 };
-SERVICE_STATUS_HANDLE g_StatusHandle = NULL;
+SERVICE_STATUS_HANDLE g_StatusHandle = NULL; // "The service status handle does not have to be closed."
 HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
+DWORD dwCheckPoint = 1;
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv);
 VOID WINAPI ServiceCtrlHandler(DWORD);
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam);
 
+BOOL ValidateParams(int argc, PTCHAR * argv)
+{
+	HANDLE dummyFile;
+	IN_ADDR addr = { 0 };
+
+	if (argc != 5)
+	{
+		_tprintf(TEXT("Usage: \"handler.exe <client_ip> <client_port> <listen_port> <file_path>\"\n"));
+		return FALSE;
+	}
+
+	if (InetPton(AF_INET, argv[1], &addr) <= 0)
+	{
+		_tprintf(TEXT("Error: the client IP address is invalid!\n"));
+		return FALSE;
+	}
+
+	if (atoi(argv[2]) <= 0 || atoi(argv[2]) > 65535)
+	{
+		_tprintf(TEXT("Error: the client port is invalid!\n"));
+		return FALSE;
+	}
+
+	if (atoi(argv[3]) <= 0 || atoi(argv[3]) > 65535)
+	{
+		_tprintf(TEXT("Error: the listen port is invalid!\n"));
+		return FALSE;
+	}
+
+	dummyFile = CreateFile(
+		argv[4], // lpFileName
+		GENERIC_READ, // dwDesiredAccess
+		0, // dwShareMode
+		NULL, // lpSecurityAttributes
+		OPEN_EXISTING, // dwCreationDisposition
+		0, // dwFlagsAndAttributes
+		NULL // hTemplateFile
+	);
+
+	if (dummyFile == INVALID_HANDLE_VALUE)
+	{
+		_tprintf(TEXT("Error: the file given is invalid!\n"));
+		return FALSE;
+	}
+
+	CloseHandle(dummyFile);
+
+	return TRUE;
+}
 
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
-{
-	HANDLE file;
-	PPARAMS params = (PPARAMS)lpParam;
-	ClayWormAddress clientAddress = {0};
-	BY_HANDLE_FILE_INFORMATION fileInfo = { 0 };
-	DWORD64 fileSize = 0;
-	DWORD numberOfChunks = 0;
-	DWORD numberOfPhases = 0;
+{	
+	HANDLE handlesArray[2] = { 0 };
+	HANDLE hThread = CreateThread(
+		NULL, // lpThreadAttributes - NULL means default
+		0, // dwStackSize - 0 means default
+		HandleServer, // lpStartAddress
+		lpParam, // lpParameter
+		0, // dwCreationFlags
+		NULL // lpThreadId
+	);
 
-	//  Periodically check if the service has been requested to stop
-	while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
+
+	if (hThread == NULL)
 	{
-		
-		if (!ClayWorm_Initialize(_ttoi(params->argv[3])))
-		{
-			return ERROR_UNKNOWN_FEATURE;
-		}
-
-		file = CreateFile(
-			params->argv[4], // lpFileName
-			GENERIC_READ, // dwDesiredAccess
-			0, // dwShareMode
-			NULL, // lpSecurityAttributes
-			OPEN_EXISTING, // dwCreationDisposition
-			0, // dwFlagsAndAttributes
-			NULL //hTemplateFile
-		);
-
-		if (file == INVALID_HANDLE_VALUE)
-		{
-			return ERROR_INVALID_PARAMETER;
-		}
-
-		memcpy(&(clientAddress.address), params->argv[1], ADDRESS_MAX_LENGTH);
-		clientAddress.port = atoi(params->argv[2]);
-
-		if (!ServerHandshake(&clientAddress, file))
-		{
-			return ERROR_UNIDENTIFIED_ERROR;
-		}
-
-		if (!GetFileInformationByHandle(file, &fileInfo))
-		{
-			return ERROR_UNIDENTIFIED_ERROR;
-		}
-
-		fileSize += fileInfo.nFileSizeHigh;
-		fileSize << 32;
-		fileSize += fileInfo.nFileSizeLow;
-
-		numberOfChunks = (fileSize / MAX_PSH_DATA) + (fileSize % MAX_PSH_DATA != 0);
-		numberOfPhases = (numberOfChunks / MAX_FRAGMENT_AT_ONCE) +
-			(numberOfChunks % MAX_FRAGMENT_AT_ONCE != 0);
-
-		if (!SendFile(
-			&clientAddress, // clientAddress
-			file, // file
-			numberOfPhases // numberOfPhases
-		))
-		{
-			return ERROR_UNIDENTIFIED_ERROR;
-		}
-
-		if (!Finish(&clientAddress))
-		{
-			return ERROR_UNIDENTIFIED_ERROR;
-		}
-		break;
+		return GetLastError();
 	}
 	
-	ClayWorm_Cleanup();
-	return ERROR_SUCCESS;
+	handlesArray[0] = g_ServiceStopEvent;
+	handlesArray[1] = hThread;
+
+	WaitForMultipleObjects(
+		2, // nCount
+		handlesArray, // lpHandles
+		FALSE, // bWaitAll
+		INFINITE // dwMilliseconds
+	);
+	
+	TerminateThread(
+		hThread, // hThread 
+		0 // dwExitCode
+	);
+	
+	return 0;
 }
 
 VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
@@ -111,7 +121,7 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
 		g_ServiceStatus.dwControlsAccepted = 0;
 		g_ServiceStatus.dwCurrentState = SERVICE_STOP_PENDING;
 		g_ServiceStatus.dwWin32ExitCode = 0;
-		g_ServiceStatus.dwCheckPoint = 4;
+		g_ServiceStatus.dwCheckPoint = dwCheckPoint++;
 
 		if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
 		{
@@ -131,15 +141,22 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
 
 
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
-{
+{	
+	
 	PARAMS params = { argc, argv };
 	// Register our service control handler with the SCM
 	g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceCtrlHandler);
 
 	if (g_StatusHandle == NULL)
 	{
-		goto EXIT;
+		return;
 	}
+
+	if (!ValidateParams(argc, argv))
+	{
+		return;
+	}
+
 
 	// Tell the service controller we are starting
 	ZeroMemory(&g_ServiceStatus, sizeof(g_ServiceStatus));
@@ -152,8 +169,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 
 	if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
 	{
-		OutputDebugString(_T(
-			"My Sample Service: ServiceMain: SetServiceStatus returned error"));
+		return;
 	}
 
 	/*
@@ -169,14 +185,11 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 		g_ServiceStatus.dwControlsAccepted = 0;
 		g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
 		g_ServiceStatus.dwWin32ExitCode = GetLastError();
-		g_ServiceStatus.dwCheckPoint = 1;
+		g_ServiceStatus.dwCheckPoint = dwCheckPoint++;
 
-		if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-		{
-			OutputDebugString(_T(
-				"My Sample Service: ServiceMain: SetServiceStatus returned error"));
-		}
-		goto EXIT;
+		SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
+		return;
+
 	}
 
 	// Tell the service controller we are started
@@ -187,18 +200,21 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 
 	if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
 	{
-		OutputDebugString(_T(
-			"My Sample Service: ServiceMain: SetServiceStatus returned error"));
+		return;
 	}
-
-
 
 	// Start a thread that will perform the main task of the service
 	HANDLE hThread = CreateThread(NULL, 0, ServiceWorkerThread, &params, 0, NULL);
 
+	if (hThread == NULL)
+	{
+		return;
+	}
+
+	
+
 	// Wait until our worker thread exits signaling that the service needs to stop
 	WaitForSingleObject(hThread, INFINITE);
-
 
 	/*
 	* Perform any cleanup tasks
@@ -210,15 +226,10 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 	g_ServiceStatus.dwControlsAccepted = 0;
 	g_ServiceStatus.dwCurrentState = SERVICE_STOPPED;
 	g_ServiceStatus.dwWin32ExitCode = 0;
-	g_ServiceStatus.dwCheckPoint = 3;
+	g_ServiceStatus.dwCheckPoint = dwCheckPoint++;
 
-	if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
-	{
-		OutputDebugString(_T(
-			"My Sample Service: ServiceMain: SetServiceStatus returned error"));
-	}
+	SetServiceStatus(g_StatusHandle, &g_ServiceStatus);
 
-EXIT:
 	return;
 }
 
