@@ -15,6 +15,7 @@
 #define MAX_PHASE_INDEX ((MAXDWORD / 128) - 1)
 #define ACK_BITFIELD_SIZE (MAX_CHUNKS / 8)
 #define CRC_SIZE (sizeof(((p_packet_headers)0)->crc))
+#define PROTOCOL_TIMEOUT (30000) // in milliseconds
 
 #define PACKET_HEADERS_SIZE (sizeof(packet_headers))
 #define SYN_PACKET_SIZE (sizeof(syn_packet))
