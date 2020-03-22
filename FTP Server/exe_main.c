@@ -26,25 +26,25 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 
 	if (argc != 5)
 	{
-		_tprintf(TEXT("Usage: \"handler.exe <client_ip> <client_port> <listen_port> <file_path>\"\n"));
+		OutputDebugString(TEXT("Usage: \"handler.exe <client_ip> <client_port> <listen_port> <file_path>\"\n"));
 		return FALSE;
 	}
 
 	if (InetPton(AF_INET, argv[1], &addr) <= 0)
 	{
-		_tprintf(TEXT("Error: the client IP address is invalid!\n"));
+		OutputDebugString(TEXT("Error: the client IP address is invalid!\n"));
 		return FALSE;
 	}
 
 	if (atoi(argv[2]) <= 0 || atoi(argv[2]) > 65535)
 	{
-		_tprintf(TEXT("Error: the client port is invalid!\n"));
+		OutputDebugString(TEXT("Error: the client port is invalid!\n"));
 		return FALSE;
 	}
 
 	if (atoi(argv[3]) <= 0 || atoi(argv[3]) > 65535)
 	{
-		_tprintf(TEXT("Error: the listen port is invalid!\n"));
+		OutputDebugString(TEXT("Error: the listen port is invalid!\n"));
 		return FALSE;
 	}
 
@@ -60,7 +60,7 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 
 	if (dummyFile == INVALID_HANDLE_VALUE)
 	{
-		_tprintf(TEXT("Error: the file given is invalid!\n"));
+		OutputDebugString(TEXT("Error: the file given is invalid!\n"));
 		return FALSE;
 	}
 
@@ -71,37 +71,15 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
 {	
-	HANDLE handlesArray[2] = { 0 };
-	HANDLE hThread = CreateThread(
-		NULL, // lpThreadAttributes - NULL means default
-		0, // dwStackSize - 0 means default
-		HandleServer, // lpStartAddress
-		lpParam, // lpParameter
-		0, // dwCreationFlags
-		NULL // lpThreadId
-	);
-
-
-	if (hThread == NULL)
+	while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
 	{
-		return GetLastError();
+		if (!HandleServer(lpParam))
+		{
+			break;
+		}
 	}
-	
-	handlesArray[0] = g_ServiceStopEvent;
-	handlesArray[1] = hThread;
 
-	WaitForMultipleObjects(
-		2, // nCount
-		handlesArray, // lpHandles
-		FALSE, // bWaitAll
-		INFINITE // dwMilliseconds
-	);
-	
-	TerminateThread(
-		hThread, // hThread 
-		0 // dwExitCode
-	);
-	
+	SetEvent(g_ServiceStopEvent);
 	return 0;
 }
 
