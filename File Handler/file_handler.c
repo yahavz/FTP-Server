@@ -17,7 +17,7 @@ BOOL ReadPhaseAndWriteChunks(HANDLE inFile, USHORT chunkMaxSize)
 		return FALSE;
 	}
 	
-	for (i = 0; i < MAX_FRAGMENT_AT_ONCE; i++)
+	for (i = 0; i < MAX_CHUNKS; i++)
 	{
 		memset(chunkToWrite, 0, chunkMaxSize);
 		memset(&chunkFileName, 0, MAX_PATH * sizeof(TCHAR));
@@ -88,7 +88,7 @@ BOOL DeleteChunksTempFiles()
 	int i;
 	TCHAR chunkFileName[MAX_PATH] = { 0 };
 	
-	for (i = 0; i < MAX_FRAGMENT_AT_ONCE; i++)
+	for (i = 0; i < MAX_CHUNKS; i++)
 	{
 		memset(chunkFileName, 0, sizeof(TCHAR) * MAX_PATH);
 		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%u.tmp"), i);
@@ -117,7 +117,7 @@ BOOL GatherChunks(HANDLE outFile, USHORT chunkMaxSize)
 		return FALSE;
 	}
 
-	for (i = 0; i < MAX_FRAGMENT_AT_ONCE; i++)
+	for (i = 0; i < MAX_CHUNKS; i++)
 	{
 		memset(chunkToRead, 0, chunkMaxSize);
 		memset(&chunkFileName, 0, MAX_PATH * sizeof(TCHAR));
