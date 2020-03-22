@@ -213,7 +213,6 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 {
 	DWORD currentPhase;
 	BYTE currentFrag;
-	HANDLE currentFragFile;
 	DWORD numberOfPhases;
 	DWORD firstPhaseEOPTime;
 	
@@ -222,7 +221,6 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 	ClayWormAddress sourceAddr = { 0 };
 	eopack_packet eopackPacket = { 0 };
 	BYTE ackArray[ACK_BITFIELD_SIZE] = { 0 };
-	BYTE currentFragData[MAX_PSH_DATA] = { 0 };
 
 	numberOfPhases = _PhaseCountOfFile(file);
 	if ((numberOfPhases == 0) && (GetLastError() != 0))
