@@ -5,6 +5,8 @@
 #define CHECK_ACK(a, i) ((a[(i) / 8] & (1 << (7 - ((i) % 8)))) != 0)
 #define ACK_CHUNK(a, i) a[(i) / 8] |= (1 << (7 - ((i) % 8)))
 
+#define TEMP_DIR TEXT("client_tmp")
+
 
 DWORD ListenForSYN(ClayWormAddress *serverAddress)
 {
@@ -56,7 +58,19 @@ BOOL _SaveFrag(USHORT fragSize, BYTE * fragData, BYTE fragIndex)
 	HANDLE fragFile;
 	DWORD bytesWritten;
 	TCHAR fragFileName[MAX_PATH] = { 0 };
-	_stprintf_s(fragFileName, MAX_PATH, TEXT("%u.tmp"), fragIndex);
+
+	if (!CreateDirectory(
+		TEMP_DIR, // lpPathName
+		NULL // lpSecurityAttributes
+	))
+	{
+		if (GetLastError() != ERROR_ALREADY_EXISTS)
+		{
+			return FALSE;
+		}
+	}
+
+	_stprintf_s(fragFileName, MAX_PATH, TEXT("%s\\%u.tmp"), TEMP_DIR, fragIndex);
 
 	fragFile = CreateFile(
 		fragFileName, // lpFileName
@@ -275,7 +289,7 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 		
 		while (!_IsPhaseCompleted(ackArray, chunksInPhase))
 		{
-			while (!ClayWorm_Available())
+			while (ClayWorm_Available())
 			{
 				memset(receivedPacketAsBytes, 0, MAX_PACKET);
 				memset(&sourceAddr, 0, sizeof(ClayWormAddress));
@@ -285,7 +299,7 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 					&sourceAddr
 				)) < 2)
 				{
-					return FALSE;
+					continue;
 				}
 
 				if (_tcsncmp(sourceAddr.address, serverAddress->address, 16) != 0)
@@ -327,7 +341,7 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 						receivedPacket.asPSH->fragIndex // fragIndex
 					))
 					{
-						return FALSE;
+						DeleteChunksTempFiles(TEMP_DIR);
 					}
 
 					ACK_CHUNK(ackArray, receivedPacket.asPSH->fragIndex);
@@ -336,13 +350,19 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 
 			if (!_SendEopAck(serverAddress, currentPhase, ackArray))
 			{
+				DeleteChunksTempFiles(TEMP_DIR);
 				return FALSE;
 			}
 		}
 		
 		numberOfChunks -= chunksInPhase;
 		memset(ackArray, 0, ACK_BITFIELD_SIZE);
-		if (!GatherChunks(fileToWrite, MAX_PSH_DATA))
+		if (!GatherChunks(fileToWrite, TEMP_DIR, MAX_PSH_DATA))
+		{
+			return FALSE;
+		}
+
+		if (!DeleteChunksTempFiles(TEMP_DIR))
 		{
 			return FALSE;
 		}
