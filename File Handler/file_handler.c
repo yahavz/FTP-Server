@@ -122,7 +122,7 @@ BOOL GatherChunks(HANDLE outFile, PTCHAR dir, USHORT chunkMaxSize)
 		memset(chunkToRead, 0, chunkMaxSize);
 		memset(&chunkFileName, 0, MAX_PATH * sizeof(TCHAR));
 
-		_stprintf_s(chunkFileName, MAX_PATH, TEXT("s%\\%u.tmp"), i);
+		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%s\\%u.tmp"), i);
 		
 		chunkFile = CreateFile(
 			chunkFileName, // lpFileName
