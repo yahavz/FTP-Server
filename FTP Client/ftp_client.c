@@ -1,7 +1,5 @@
-#include <Windows.h>
-#include <WinSock2.h>
-#include <tchar.h>
 #include <stdio.h>
+#include "client_functionality.h"
 
 
 BOOL ValidateParams(int argc, PTCHAR * argv)
@@ -38,17 +36,16 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 		GENERIC_READ, // dwDesiredAccess
 		0, // dwShareMode
 		NULL, // lpSecurityAttributes
-		CREATE_NEW, // dwCreationDisposition
+		OPEN_EXISTING, // dwCreationDisposition
 		0, // dwFlagsAndAttributes
 		NULL // hTemplateFile
 	);
 
 	if (dummyFile == INVALID_HANDLE_VALUE)
 	{
-		if (GetLastError() == ERROR_FILE_EXISTS)
+		if (GetLastError() == ERROR_FILE_NOT_FOUND)
 		{
-			_tprintf(TEXT("Error: the given file already exists!\n"));
-			return FALSE;
+			return TRUE;
 		}
 		
 		_tprintf(TEXT("Error: the file given is invalid!\n"));
@@ -56,11 +53,18 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 	}
 
 	CloseHandle(dummyFile);
-
-	return TRUE;
+	_tprintf(TEXT("Error: the given file already exists!\n"));
+	return FALSE;
 }
 
 int _tmain(DWORD argc, LPTSTR * argv)
 {
-	
+	PARAMS params = { argc, argv };
+	if (!ValidateParams(argc, argv))
+	{
+		return 1;
+	}
+
+	HandleClient(&params);
+	return 0;
 }
