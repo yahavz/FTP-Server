@@ -4,7 +4,7 @@
 #include "file_handler.h"
 #include "../Protocol/protocol.h"
 
-BOOL ReadPhaseAndWriteChunks(HANDLE inFile, USHORT chunkMaxSize)
+BOOL ReadPhaseAndWriteChunks(HANDLE inFile, PTCHAR dir, USHORT chunkMaxSize)
 {
 	int i;
 	DWORD bytesRead;
@@ -41,7 +41,7 @@ BOOL ReadPhaseAndWriteChunks(HANDLE inFile, USHORT chunkMaxSize)
 			return TRUE;
 		}
 
-		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%u.tmp"), i);
+		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%s\\%u.tmp"), dir, i);
 
 		chunkFile = CreateFile(
 			chunkFileName, // lpFileName
@@ -83,7 +83,7 @@ BOOL ReadPhaseAndWriteChunks(HANDLE inFile, USHORT chunkMaxSize)
 	return TRUE;
 }
 
-BOOL DeleteChunksTempFiles()
+BOOL DeleteChunksTempFiles(PTCHAR dir)
 {
 	int i;
 	TCHAR chunkFileName[MAX_PATH] = { 0 };
@@ -91,7 +91,7 @@ BOOL DeleteChunksTempFiles()
 	for (i = 0; i < MAX_CHUNKS; i++)
 	{
 		memset(chunkFileName, 0, sizeof(TCHAR) * MAX_PATH);
-		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%u.tmp"), i);
+		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%s\\%u.tmp"), dir, i);
 		if (!DeleteFile(chunkFileName))
 		{
 			if (GetLastError() != ERROR_FILE_NOT_FOUND)
@@ -104,7 +104,7 @@ BOOL DeleteChunksTempFiles()
 	return TRUE;
 }
 
-BOOL GatherChunks(HANDLE outFile, USHORT chunkMaxSize)
+BOOL GatherChunks(HANDLE outFile, PTCHAR dir, USHORT chunkMaxSize)
 {
 	int i;
 	DWORD bytesRead;
@@ -122,7 +122,7 @@ BOOL GatherChunks(HANDLE outFile, USHORT chunkMaxSize)
 		memset(chunkToRead, 0, chunkMaxSize);
 		memset(&chunkFileName, 0, MAX_PATH * sizeof(TCHAR));
 
-		_stprintf_s(chunkFileName, MAX_PATH, TEXT("%u.tmp"), i);
+		_stprintf_s(chunkFileName, MAX_PATH, TEXT("s%\\%u.tmp"), i);
 		
 		chunkFile = CreateFile(
 			chunkFileName, // lpFileName
