@@ -15,7 +15,7 @@ typedef struct {
 
 DWORD ListenForSYN(ClayWormAddress *serverAddress);
 
-BOOL GetFileFromServer(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD numberOfChunks);
+BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD numberOfChunks);
 
 BOOL HandleClient(PPARAMS params);
 
