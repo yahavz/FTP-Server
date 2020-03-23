@@ -25,7 +25,7 @@ DWORD ListenForSYN(ClayWormAddress *serverAddress)
 				return 0;
 			}
 
-			if (memcmp(&sourceAddr, serverAddress, sizeof(ClayWormAddress)) != 0)
+			if (_tcsncmp(sourceAddr.address, serverAddress->address, 16) != 0)
 			{
 				continue;
 			}
@@ -124,13 +124,13 @@ BOOL _SendEopAck(ClayWormAddress *serverAddress, DWORD phaseIndex, BYTE * ackArr
 
 	eopackPacket.headers.type = TYPE_EOPACK;
 
+	eopackPacket.ackPhase = phaseIndex;
+	memcpy(eopackPacket.ackField, ackArray, ACK_BITFIELD_SIZE);
+	
 	eopackPacket.headers.crc = crc16(
 		&(eopackPacket.headers.type), // data
 		EOPACK_PACKET_SIZE - CRC_SIZE // size
 	);
-
-	eopackPacket.ackPhase = phaseIndex;
-	memcpy(eopackPacket.ackField, ackArray, ACK_BITFIELD_SIZE);
 
 	if (!ClayWorm_Send(
 		(uint8_t *)&eopackPacket, // data
@@ -186,7 +186,7 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 				continue;
 			}
 
-			if (memcmp(&sourceAddr, serverAddress, sizeof(ClayWormAddress)) != 0)
+			if (_tcsncmp(sourceAddr.address, serverAddress->address, 16) != 0)
 			{
 				if (GetTickCount() - lastGoodPacketTime >= PROTOCOL_TIMEOUT)
 				{
@@ -288,7 +288,7 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 					return FALSE;
 				}
 
-				if (memcmp(&sourceAddr, serverAddress, sizeof(ClayWormAddress)) != 0)
+				if (_tcsncmp(sourceAddr.address, serverAddress->address, 16) != 0)
 				{
 					if (GetTickCount() - lastGoodPacketTime >= PROTOCOL_TIMEOUT)
 					{
@@ -332,6 +332,11 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 
 					ACK_CHUNK(ackArray, receivedPacket.asPSH->fragIndex);
 				}
+			}
+
+			if (!_SendEopAck(serverAddress, currentPhase, ackArray))
+			{
+				return FALSE;
 			}
 		}
 		
