@@ -1,5 +1,6 @@
-#include <stdio.h>
+#include <WS2tcpip.h>
 #include "client_functionality.h"
+#include <stdio.h>
 
 
 BOOL ValidateParams(int argc, PTCHAR * argv)
