@@ -163,6 +163,7 @@ BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
 				continue;
 			}
 
+
 			return TRUE;
 		}
 	}
@@ -471,6 +472,8 @@ BOOL HandleServer(PPARAMS params)
 	{
 		return FALSE;
 	}
+
+	portToListen = params->listenPort;
 
 	if (!ClayWorm_Initialize(portToListen))
 	{
