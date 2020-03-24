@@ -8,8 +8,6 @@
 
 #define SERVICE_NAME  _T("FTPServer")
 
-
-
 SERVICE_STATUS        g_ServiceStatus = { 0 };
 SERVICE_STATUS_HANDLE g_StatusHandle = NULL; // "The service status handle does not have to be closed."
 HANDLE                g_ServiceStopEvent = INVALID_HANDLE_VALUE;
@@ -19,7 +17,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv);
 VOID WINAPI ServiceCtrlHandler(DWORD);
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam);
 
-BOOL ValidateParams(int argc, PTCHAR * argv)
+BOOL ValidateParams(DWORD argc, LPTSTR * argv)
 {
 	HANDLE dummyFile;
 	IN_ADDR addr = { 0 };
@@ -71,15 +69,73 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 
 DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
 {	
+	DWORD waitStatus;
+	BOOL exitCode;
+	HANDLE serverThread;
+	HANDLE handleArray[2] = { 0 };
+	
 	while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
 	{
-		if (!HandleServer(lpParam))
+		if ((serverThread = CreateThread(
+			NULL, // lpSecurityAttributes
+			0, // dwStackSize
+			(LPTHREAD_START_ROUTINE)HandleServer, // lpStartAddress
+			lpParam, // lpParameter
+			0, //dwCreationFlags
+			NULL // lpThreadId
+		)) == NULL)
 		{
-			break;
+			SetEvent(g_ServiceStopEvent);
+			return GetLastError();
+		};
+
+
+		handleArray[0] = serverThread;
+		handleArray[1] = g_ServiceStopEvent;
+
+		waitStatus = WaitForMultipleObjects(
+			2, // nCount
+			handleArray, // lpHandles
+			FALSE, // bWaitAll
+			INFINITE // dwMilliseconds
+		);
+
+		switch (waitStatus)
+		{
+		case 0: // serverThread (and optionaly g_ServiceStopEvent) is signaled
+			if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
+			{
+				return 0;
+			}
+
+			if (!GetExitCodeThread(serverThread, (DWORD *)&exitCode))
+			{
+				return GetLastError();
+			}
+
+			if (!exitCode)
+			{
+				return 1;
+			}
+			
+			continue;
+		
+		case 1: // g_ServiceStopEvent is signaled
+			TerminateThread(serverThread, ERROR_SERVICE_DISABLED);
+			ClayWorm_Cleanup();
+			return 0;
+
+		default:
+			TerminateThread(serverThread, ERROR_WAIT_1);
+			ClayWorm_Cleanup();
+			SetEvent(g_ServiceStopEvent);
+			return 1;
 		}
+
+
 	}
 
-	SetEvent(g_ServiceStopEvent);
+	
 	return 0;
 }
 
@@ -121,7 +177,7 @@ VOID WINAPI ServiceCtrlHandler(DWORD CtrlCode)
 VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 {	
 	
-	PARAMS params = { argc, argv };
+	PARAMS params;
 	// Register our service control handler with the SCM
 	g_StatusHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceCtrlHandler);
 
@@ -182,6 +238,12 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 	}
 
 	// Start a thread that will perform the main task of the service
+
+	params.clientIP = argv[1];
+	params.clientPort = (USHORT)atoi(argv[2]);
+	params.listenPort = (USHORT)atoi(argv[3]);
+	params.filePath = argv[4];
+
 	HANDLE hThread = CreateThread(NULL, 0, ServiceWorkerThread, &params, 0, NULL);
 
 	if (hThread == NULL)
