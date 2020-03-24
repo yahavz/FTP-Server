@@ -60,11 +60,16 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 
 int _tmain(DWORD argc, LPTSTR * argv)
 {
-	PARAMS params = { argc, argv };
+	PARAMS params;
 	if (!ValidateParams(argc, argv))
 	{
 		return 1;
 	}
+
+	params.serverIP = argv[1];
+	params.serverPort = (USHORT)atoi(argv[2]);
+	params.listenPort = (USHORT)atoi(argv[3]);
+	params.filePath = argv[4];
 
 	HandleClient(&params);
 	return 0;

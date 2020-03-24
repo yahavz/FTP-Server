@@ -20,7 +20,11 @@ DWORD ListenForSYN(ClayWormAddress *serverAddress)
 			memset(&receivedPacket, 0, SYN_PACKET_SIZE);
 			memset(&sourceAddr, 0, sizeof(ClayWormAddress));
 
-			if (!ClayWorm_Receive((uint8_t *)&receivedPacket, SYN_PACKET_SIZE, &sourceAddr))
+			if (ClayWorm_Receive(
+				(uint8_t *)&receivedPacket, 
+				SYN_PACKET_SIZE, 
+				&sourceAddr
+			) != SYN_PACKET_SIZE)
 			{
 				_tprintf(TEXT("Error in receiving SYN packet!\n"));
 				SetLastError(ERROR_UNIDENTIFIED_ERROR);
@@ -386,25 +390,24 @@ BOOL HandleClient(PPARAMS params)
 {
 	HANDLE fileToSave;
 	DWORD numberOfChunks;
-	BOOL returnValue = FALSE;
 	ClayWormAddress serverAddress = { 0 };
-	USHORT portToListen = atoi(params->argv[3]);
+	USHORT portToListen = params->listenPort;
 	if (!ClayWorm_Initialize(portToListen))
 	{
-		goto l_return;
+		return FALSE;
 	}
 
 	_tcsncpy_s(
 		(TCHAR *)&(serverAddress.address), // _Dst
 		16,
-		(TCHAR*)params->argv[1], // _Source
+		(TCHAR*)params->serverIP, // _Source
 		15 // _Count
 	);
 
-	serverAddress.port = atoi(params->argv[2]);
+	serverAddress.port = params->serverPort;
 
 	fileToSave = CreateFile(
-		params->argv[4], // lpFileName
+		params->filePath, // lpFileName
 		GENERIC_WRITE, // dwDesiredAccess
 		0, // dwShareMode
 		NULL, // lpSecurityAttributes
@@ -415,27 +418,27 @@ BOOL HandleClient(PPARAMS params)
 
 	if (fileToSave == INVALID_HANDLE_VALUE)
 	{
-		goto l_clayworm_cleanup;
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
 	numberOfChunks = ListenForSYN(&serverAddress);
 
 	if (GetLastError())
 	{
-		goto l_close_file;
+		CloseHandle(fileToSave);
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
 	if (!GetFileAndFinish(&serverAddress, fileToSave, numberOfChunks))
 	{
-		goto l_close_file;
+		CloseHandle(fileToSave);
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
-	returnValue = TRUE;
-
-l_close_file:
 	CloseHandle(fileToSave);
-l_clayworm_cleanup:
 	ClayWorm_Cleanup();
-l_return:
-	return returnValue;
+	return TRUE;
 }

