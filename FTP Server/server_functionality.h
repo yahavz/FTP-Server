@@ -4,8 +4,10 @@
 #define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
 
 typedef struct {
-	DWORD argc;
-	LPTSTR * argv;
+	LPTSTR clientIP;
+	USHORT clientPort;
+	USHORT listenPort;
+	LPTSTR filePath;
 } PARAMS, *PPARAMS;
 
 BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file);

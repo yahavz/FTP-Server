@@ -7,9 +7,54 @@
 #include "server_functionality.h"
 #include "../File Handler/file_handler.h"
 
+#define CHECK_ACK(a, i) ((a[(i) / 8] & (1 << (7 - ((i) % 8)))) != 0)
+
 #define TEMP_DIR TEXT("server_tmp")
 
-HANDLE g_ServiceStopEvent;
+BOOL _ValidateParams(PPARAMS params)
+{
+	HANDLE dummyFile;
+	IN_ADDR addr = { 0 };
+
+	if (InetPton(AF_INET, params->clientIP, &addr) <= 0)
+	{
+		_tprintf(TEXT("Error: the client IP address is invalid!\n"));
+		return FALSE;
+	}
+
+	if (params->clientPort < 1)
+	{
+		_tprintf(TEXT("Error: the client port is invalid!\n"));
+		return FALSE;
+	}
+
+	if (params->listenPort < 1)
+	{
+		_tprintf(TEXT("Error: the listen port is invalid!\n"));
+		return FALSE;
+	}
+
+	dummyFile = CreateFile(
+		params->filePath, // lpFileName
+		GENERIC_READ, // dwDesiredAccess
+		0, // dwShareMode
+		NULL, // lpSecurityAttributes
+		OPEN_EXISTING, // dwCreationDisposition
+		0, // dwFlagsAndAttributes
+		NULL // hTemplateFile
+	);
+
+	if (dummyFile == INVALID_HANDLE_VALUE)
+	{
+		_tprintf(TEXT("Error: the file given is invalid!\n"));
+		return FALSE;
+	}
+
+	CloseHandle(dummyFile);
+
+	return TRUE;
+
+}
 
 DWORD _ChunksCountOfFile(HANDLE file)
 {
@@ -22,7 +67,7 @@ DWORD _ChunksCountOfFile(HANDLE file)
 		&fileInfo // lpFileInformation
 	))
 	{
-		OutputDebugString(TEXT("Error in getting file information for calculation of number of chunks!"));
+		_tprintf(TEXT("Error in getting file information for calculation of number of chunks!"));
 		return 0;
 	}
 
@@ -36,7 +81,7 @@ DWORD _ChunksCountOfFile(HANDLE file)
 
 	if (numberOfChunks > MAXDWORD)
 	{
-		OutputDebugString(TEXT("file is to big!"));
+		_tprintf(TEXT("file is to big!"));
 		SetLastError(ERROR_FILE_TOO_LARGE);
 		return 0;
 	}
@@ -49,7 +94,7 @@ DWORD _PhaseCountOfFile(HANDLE file)
 	DWORD numberOfChunks = _ChunksCountOfFile(file);
 	if ((numberOfChunks == 0) && (GetLastError != 0))
 	{
-		OutputDebugString(TEXT("Error in getting number of chunks for calculation of number of phases!"));
+		_tprintf(TEXT("Error in getting number of chunks for calculation of number of phases!"));
 		SetLastError(GetLastError());
 	}
 
@@ -75,7 +120,7 @@ BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
 	);
 
 
-	while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
+	while (TRUE)
 	{
 		if (!ClayWorm_Send(
 			(uint8_t *)&synPacket, // data
@@ -83,7 +128,7 @@ BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
 			clientAddress // destination
 		))
 		{
-			OutputDebugString(TEXT("Error: could not send the SYN packet!\n"));
+			_tprintf(TEXT("Error: could not send the SYN packet!\n"));
 			return FALSE;
 		}
 
@@ -274,7 +319,7 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 			{
 				// check if the frag was ACKed before
 				
-				if ((ackArray[currentFrag / 8] & (1 << (7 - (currentFrag % 8)))) != 0)
+				if (CHECK_ACK(ackArray, currentFrag))
 				{
 					continue;
 				}
@@ -289,11 +334,11 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 
 			firstPhaseEOPTime = GetTickCount();
 
-			while (WaitForSingleObject(g_ServiceStopEvent, 0) != WAIT_OBJECT_0)
+			while (TRUE)
 			{
 				if (GetTickCount() - firstPhaseEOPTime >= PROTOCOL_TIMEOUT)
 				{
-					OutputDebugString(TEXT("Timeout exceeded! The client is not up probably."));
+					_tprintf(TEXT("Timeout exceeded! The client is not up probably."));
 					DeleteChunksTempFiles(TEMP_DIR);
 					return FALSE;
 				}
@@ -321,6 +366,8 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 					{
 						continue;
 					}
+
+					firstPhaseEOPTime = GetTickCount();
 
 					if (crc16(
 						&(eopackPacket.headers.type), // data 
@@ -364,8 +411,6 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 
 		numberOfChunks -= currentFrag;
 		DeleteChunksTempFiles(TEMP_DIR);
-
-		_tprintf(TEXT("phase %u/%u completed!\n"), currentPhase, numberOfPhases);
 	}
 	
 	return TRUE;
@@ -385,12 +430,7 @@ BOOL Finish(ClayWormAddress *clientAddress)
 	);
 
 	do
-	{
-		if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
-		{
-			return FALSE;
-		}
-		
+	{		
 		clientStillUp = FALSE;
 		if (!ClayWorm_Send((uint8_t *)&finPacket, FIN_PACKET_SIZE, clientAddress))
 		{
@@ -423,30 +463,31 @@ BOOL Finish(ClayWormAddress *clientAddress)
 BOOL HandleServer(PPARAMS params)
 {
 	HANDLE fileToSend;
+	USHORT portToListen;
 	BOOL returnValue = FALSE;
 	ClayWormAddress clientAddress = { 0 };
-	USHORT portToListen = atoi(params->argv[3]);
+	
+	if (!_ValidateParams(params))
+	{
+		return FALSE;
+	}
+
 	if (!ClayWorm_Initialize(portToListen))
 	{
-		goto l_return;
+		return FALSE;
 	}
 
 	_tcsncpy_s(
 		(TCHAR *)&(clientAddress.address), // _Dst
 		16,
-		(TCHAR*)params->argv[1], // _Source
+		(TCHAR*)params->clientIP, // _Source
 		15 // _Count
 	);
 
-	clientAddress.port = atoi(params->argv[2]);
-
-	if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
-	{
-		goto l_clayworm_cleanup;
-	}
+	clientAddress.port = params->clientPort;
 
 	fileToSend = CreateFile(
-		params->argv[4], // lpFileName
+		params->filePath, // lpFileName
 		GENERIC_READ, // dwDesiredAccess
 		0, // dwShareMode
 		NULL, // lpSecurityAttributes
@@ -457,48 +498,32 @@ BOOL HandleServer(PPARAMS params)
 
 	if (fileToSend == INVALID_HANDLE_VALUE)
 	{
-		goto l_clayworm_cleanup;
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
 	if (!ServerHandshake(&clientAddress, fileToSend))
 	{
-		goto l_close_file;
-	}
-
-	if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
-	{
-		goto l_close_file;
+		CloseHandle(fileToSend);
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
 	if (!SendFile(&clientAddress, fileToSend))
 	{
-		goto l_close_file;
-	}
-
-	if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
-	{
-		goto l_close_file;
+		CloseHandle(fileToSend);
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
 	if (!Finish(&clientAddress))
 	{
-		goto l_close_file;
+		CloseHandle(fileToSend);
+		ClayWorm_Cleanup();
+		return FALSE;
 	}
 
-	returnValue = TRUE;
-
-l_close_file:
 	CloseHandle(fileToSend);
-l_clayworm_cleanup:
 	ClayWorm_Cleanup();
-l_return:
-	return returnValue;
-}
-
-int _tmain(DWORD argc, LPTSTR * argv)
-{
-	g_ServiceStopEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-	PARAMS params = { argc, argv };
-	HandleServer(&params);
-	return 0;
+	return TRUE;
 }
