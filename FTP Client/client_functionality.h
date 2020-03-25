@@ -2,11 +2,9 @@
 #define CLIENT_H_
 
 #include "../ClayWorm/clayworm.h"
+#include "../Protocol/protocol.h"
 #include <Windows.h>
 #include <tchar.h>
-#include "../Protocol/protocol.h"
-
-#define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
 
 typedef struct {
 	LPTSTR serverIP;

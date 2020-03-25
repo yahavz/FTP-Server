@@ -20,13 +20,15 @@ BOOL ValidateParams(int argc, PTCHAR * argv)
 		return FALSE;
 	}
 
-	if (atoi(argv[2]) <= 0 || atoi(argv[2]) > 65535)
+	if (atoi(argv[2]) <= 0 || atoi(argv[2]) > 65535 ||
+		!(atoi(argv[2]) >= 50000))
 	{
 		_tprintf(TEXT("Error: the server port is invalid!\n"));
 		return FALSE;
 	}
 
-	if (atoi(argv[3]) <= 0 || atoi(argv[3]) > 65535)
+	if (atoi(argv[3]) <= 0 || atoi(argv[3]) > 65535 ||
+		!(atoi(argv[3]) >= 50000))
 	{
 		_tprintf(TEXT("Error: the listen port is invalid!\n"));
 		return FALSE;

@@ -5,8 +5,6 @@
 #define CHECK_ACK(a, i) ((a[(i) / 8] & (1 << (7 - ((i) % 8)))) != 0)
 #define ACK_CHUNK(a, i) a[(i) / 8] |= (1 << (7 - ((i) % 8)))
 
-#define TEMP_DIR TEXT("client_tmp")
-
 
 DWORD ListenForSYN(ClayWormAddress *serverAddress)
 {
@@ -26,9 +24,7 @@ DWORD ListenForSYN(ClayWormAddress *serverAddress)
 				&sourceAddr
 			) != SYN_PACKET_SIZE)
 			{
-				_tprintf(TEXT("Error in receiving SYN packet!\n"));
-				SetLastError(ERROR_UNIDENTIFIED_ERROR);
-				return 0;
+				continue;
 			}
 
 			if (_tcsncmp(sourceAddr.address, serverAddress->address, 16) != 0)
@@ -49,7 +45,6 @@ DWORD ListenForSYN(ClayWormAddress *serverAddress)
 				continue;
 			}
 			
-			SetLastError(0);
 			return receivedPacket.numberOfChunks;
 		
 		}
@@ -57,62 +52,8 @@ DWORD ListenForSYN(ClayWormAddress *serverAddress)
 	
 }
 
-BOOL _SaveFrag(USHORT fragSize, BYTE * fragData, BYTE fragIndex)
-{
-	HANDLE fragFile;
-	DWORD bytesWritten;
-	TCHAR fragFileName[MAX_PATH] = { 0 };
 
-	if (!CreateDirectory(
-		TEMP_DIR, // lpPathName
-		NULL // lpSecurityAttributes
-	))
-	{
-		if (GetLastError() != ERROR_ALREADY_EXISTS)
-		{
-			return FALSE;
-		}
-	}
-
-	_stprintf_s(fragFileName, MAX_PATH, TEXT("%s\\%u.tmp"), TEMP_DIR, fragIndex);
-
-	fragFile = CreateFile(
-		fragFileName, // lpFileName
-		GENERIC_WRITE, // dwDesiredAccess
-		0, // dwShareMode
-		NULL, // lpSecurityAttributes
-		CREATE_NEW, // dwCreationDisposition
-		0, // dwFlagsAndAttributes
-		NULL // hTemplateFile
-	);
-
-	if (fragFile == INVALID_HANDLE_VALUE)
-	{
-		if (GetLastError() == ERROR_FILE_EXISTS)
-		{
-			return TRUE;
-		}
-
-		return FALSE;
-	}
-
-	if (!WriteFile(
-		fragFile, // hFile
-		fragData, // lpBuffer
-		fragSize, // nNumberOfBytesToWrite
-		&bytesWritten, // lpNumberOfBytesWritten
-		NULL // lpOverlapped
-	))
-	{
-		CloseHandle(fragFile);
-		return FALSE;
-	}
-
-	CloseHandle(fragFile);
-	return TRUE;
-}
-
-BOOL _SendSynAck(ClayWormAddress *serverAddress)
+static BOOL SendSynAck(ClayWormAddress *serverAddress)
 {
 	synack_packet synackPacket = { 0 };
 
@@ -136,7 +77,7 @@ BOOL _SendSynAck(ClayWormAddress *serverAddress)
 	return TRUE;
 }
 
-BOOL _SendEopAck(ClayWormAddress *serverAddress, DWORD phaseIndex, BYTE * ackArray)
+static BOOL SendEopAck(ClayWormAddress *serverAddress, DWORD phaseIndex, BYTE * ackArray)
 {
 	eopack_packet eopackPacket = { 0 };
 
@@ -163,12 +104,11 @@ BOOL _SendEopAck(ClayWormAddress *serverAddress, DWORD phaseIndex, BYTE * ackArr
 	return TRUE;
 }
 
-BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BYTE * pReceivedPacket)
+static BOOL GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, p_dynamic_packet pReceivedPacket)
 {
 	USHORT receivedBytes = 0;
 	DWORD lastGoodPacketTime = GetTickCount();
 	ClayWormAddress sourceAddr = { 0 };
-	dynamic_packet receivedPacketDynamic = { (p_syn_packet)pReceivedPacket };
 	BYTE finalAckArray[ACK_BITFIELD_SIZE] = { 0 };
 	memset(finalAckArray, 0xff, ACK_BITFIELD_SIZE);
 
@@ -177,7 +117,7 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 		
 		if (!phaseIndex)
 		{
-			if (!_SendSynAck(serverAddress))
+			if (!SendSynAck(serverAddress))
 			{
 				return FALSE;
 			}
@@ -185,7 +125,7 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 
 		else
 		{
-			if (!_SendEopAck(serverAddress, phaseIndex - 1, finalAckArray))
+			if (!SendEopAck(serverAddress, phaseIndex - 1, finalAckArray))
 			{
 				return FALSE;
 			}
@@ -199,7 +139,7 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 				(uint8_t *)pReceivedPacket, // data
 				MAX_PACKET, // dataLength
 				&sourceAddr // source_address
-			)) < 2)
+			)) < PACKET_HEADERS_SIZE)
 			{
 				continue;
 			}
@@ -217,32 +157,33 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 			lastGoodPacketTime = GetTickCount();
 
 			if (crc16(
-				&(receivedPacketDynamic.asPSH->headers.type), // data
+				&(pReceivedPacket->asPSH.pshHeaders.headers.type), // data
 				receivedBytes - CRC_SIZE // size
-			) != receivedPacketDynamic.asPSH->headers.crc)
+			) != pReceivedPacket->asPSH.pshHeaders.headers.crc)
 			{
 				continue;
 			}
 
 
-			if (receivedPacketDynamic.asPSH->headers.type == TYPE_EOP)
+			if (pReceivedPacket->asEOP.headers.type == TYPE_EOP)
 			{
-				if (receivedPacketDynamic.asEOP->fragPhase == phaseIndex)
+				if (pReceivedPacket->asEOP.fragPhase == phaseIndex)
 				{
 					return TRUE;
 				}
 			}
 
-			if (receivedPacketDynamic.asPSH->headers.type == TYPE_PSH)
+			if (pReceivedPacket->asPSH.pshHeaders.headers.type == TYPE_PSH)
 			{
-				if ((receivedPacketDynamic.asPSH->fragPhase == phaseIndex) &&
-					(receivedPacketDynamic.asPSH->fragIndex < MAX_CHUNKS))
+				if ((pReceivedPacket->asPSH.pshHeaders.fragPhase == phaseIndex) &&
+					(pReceivedPacket->asPSH.pshHeaders.fragIndex < MAX_CHUNKS) &&
+					(pReceivedPacket->asPSH.pshHeaders.fragSize <= MAX_PSH_DATA))
 				{
 					return TRUE;
 				}
 			}
 
-			if (receivedPacketDynamic.asFIN->headers.type == TYPE_FIN)
+			if (pReceivedPacket->asFIN.headers.type == TYPE_FIN)
 			{
 				return TRUE;
 			}
@@ -250,7 +191,7 @@ BOOL _GetFirstPacketOfPhase(ClayWormAddress *serverAddress, DWORD phaseIndex, BY
 	}
 }
 
-BOOL _IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE], DWORD chunksInPhase)
+static BOOL IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE], DWORD chunksInPhase)
 {
 	DWORD i;
 	for (i = 0; i < chunksInPhase; i++)
@@ -267,7 +208,7 @@ BOOL _IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE], DWORD chunksInPhase)
 
 BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD numberOfChunks)
 {
-	DWORD chunksInPhase;
+	BYTE chunksInPhase;
 	DWORD currentPhase;
 	DWORD lastGoodPacketTime;
 	
@@ -275,14 +216,19 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 	USHORT bytesReceived = 0;
 	DWORD numberOfPhases = ((numberOfChunks / MAX_CHUNKS) + (numberOfChunks % MAX_CHUNKS != 0));
 	BYTE ackArray[16] = { 0 };
-	BYTE * receivedPacketAsBytes[MAX_PACKET] = { 0 };
-	dynamic_packet receivedPacket = {(p_syn_packet)receivedPacketAsBytes};
+	p_chunk_t chunksArray[MAX_CHUNKS] = { 0 };
+	dynamic_packet receivedPacket = { 0 };
 	ClayWormAddress sourceAddr = { 0 };
+
+	if (!AllocateChunks(chunksArray))
+	{
+		return FALSE;
+	}
 
 	for (currentPhase = 0; currentPhase < numberOfPhases; currentPhase++)
 	{
-		chunksInPhase = min(numberOfChunks, MAX_CHUNKS);
-		if (!_GetFirstPacketOfPhase(serverAddress, currentPhase, (BYTE *)receivedPacketAsBytes))
+		chunksInPhase = (BYTE)min(numberOfChunks, MAX_CHUNKS);
+		if (!GetFirstPacketOfPhase(serverAddress, currentPhase, &receivedPacket))
 		{
 			return FALSE;
 		}
@@ -291,17 +237,17 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 
 		goto l_after_first_phase_packet_received;
 		
-		while (!_IsPhaseCompleted(ackArray, chunksInPhase))
+		while (!IsPhaseCompleted(ackArray, chunksInPhase))
 		{
 			while (ClayWorm_Available())
 			{
-				memset(receivedPacketAsBytes, 0, MAX_PACKET);
+				memset(&receivedPacket, 0, sizeof(dynamic_packet));
 				memset(&sourceAddr, 0, sizeof(ClayWormAddress));
 				if ((bytesReceived = (USHORT)ClayWorm_Receive(
-					(uint8_t *)receivedPacketAsBytes, 
+					(uint8_t *)&receivedPacket, 
 					MAX_PACKET, 
 					&sourceAddr
-				)) < 2)
+				)) < PACKET_HEADERS_SIZE)
 				{
 					continue;
 				}
@@ -311,6 +257,7 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 					if (GetTickCount() - lastGoodPacketTime >= PROTOCOL_TIMEOUT)
 					{
 						_tprintf(TEXT("Error: timeout exceeded!\n"));
+						FreeChunks(chunksArray);
 						return FALSE;
 					}
 					continue;
@@ -319,67 +266,72 @@ BOOL GetFileAndFinish(ClayWormAddress *serverAddress, HANDLE fileToWrite, DWORD 
 				lastGoodPacketTime = GetTickCount();
 
 				if (crc16(
-					&(receivedPacket.asPSH->headers.type), // data
+					&(receivedPacket.asPSH.pshHeaders.headers.type), // data
 					bytesReceived - CRC_SIZE // size
-				) != receivedPacket.asPSH->headers.crc)
+				) != receivedPacket.asPSH.pshHeaders.headers.crc)
 				{
 					continue;
 				}
 
 			l_after_first_phase_packet_received:
 
-				if ((receivedPacket.asEOP->headers.type == TYPE_EOP) &&
-					(receivedPacket.asEOP->fragPhase == currentPhase))
+				if ((receivedPacket.asEOP.headers.type == TYPE_EOP) &&
+					(receivedPacket.asEOP.fragPhase == currentPhase))
 				{
 					isEOP = TRUE;
 					continue;
 				}
 
-				if ((receivedPacket.asPSH->headers.type == TYPE_PSH) &&
-					(receivedPacket.asPSH->fragPhase == currentPhase) &&
-					!(CHECK_ACK(ackArray, receivedPacket.asPSH->fragIndex)))
+				if ((receivedPacket.asPSH.pshHeaders.headers.type == TYPE_PSH) &&
+					(receivedPacket.asPSH.pshHeaders.fragPhase == currentPhase) &&
+					!(CHECK_ACK(ackArray, receivedPacket.asPSH.pshHeaders.fragIndex)))
 				{
-					if (!_SaveFrag(
-						receivedPacket.asPSH->fragSize, // fragSize
-						(BYTE *)(receivedPacket.asPSH + 1), // fragData
-						receivedPacket.asPSH->fragIndex // fragIndex
-					))
-					{
-						DeleteChunksTempFiles(TEMP_DIR);
-					}
+					chunksArray[receivedPacket.asPSH.pshHeaders.fragIndex]->chunkSize =
+						receivedPacket.asPSH.pshHeaders.fragSize;
 
-					ACK_CHUNK(ackArray, receivedPacket.asPSH->fragIndex);
+					memcpy(
+						chunksArray[receivedPacket.asPSH.pshHeaders.fragIndex]->data,
+						receivedPacket.asPSH.data,
+						receivedPacket.asPSH.pshHeaders.fragSize
+					);
+
+					ACK_CHUNK(ackArray, receivedPacket.asPSH.pshHeaders.fragIndex);
 				}
 			}
 
-			if (!_SendEopAck(serverAddress, currentPhase, ackArray))
+			if (isEOP)
 			{
-				DeleteChunksTempFiles(TEMP_DIR);
-				return FALSE;
+				if (!SendEopAck(serverAddress, currentPhase, ackArray))
+				{
+					FreeChunks(chunksArray);
+					return FALSE;
+				}
 			}
 		}
 		
 		numberOfChunks -= chunksInPhase;
 		memset(ackArray, 0, ACK_BITFIELD_SIZE);
-		if (!GatherChunks(fileToWrite, TEMP_DIR, MAX_PSH_DATA))
+		if (!GatherChunks(fileToWrite, chunksInPhase, chunksArray))
 		{
+			FreeChunks(chunksArray);
 			return FALSE;
 		}
 
-		if (!DeleteChunksTempFiles(TEMP_DIR))
-		{
-			return FALSE;
-		}
+	}
+
+	if (!FreeChunks(chunksArray))
+	{
+		return FALSE;
 	}
 
 	while (TRUE)
 	{
-		if (!_GetFirstPacketOfPhase(serverAddress, currentPhase, (BYTE *)receivedPacketAsBytes))
+		if (!GetFirstPacketOfPhase(serverAddress, currentPhase, &receivedPacket))
 		{
 			return FALSE;
 		}
 
-		if (receivedPacket.asFIN->headers.type == TYPE_FIN)
+		if (receivedPacket.asFIN.headers.type == TYPE_FIN)
 		{
 			return TRUE;
 		}
@@ -423,13 +375,6 @@ BOOL HandleClient(PPARAMS params)
 	}
 
 	numberOfChunks = ListenForSYN(&serverAddress);
-
-	if (GetLastError())
-	{
-		CloseHandle(fileToSave);
-		ClayWorm_Cleanup();
-		return FALSE;
-	}
 
 	if (!GetFileAndFinish(&serverAddress, fileToSave, numberOfChunks))
 	{
