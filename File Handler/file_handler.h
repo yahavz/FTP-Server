@@ -3,10 +3,12 @@
 
 #include <Windows.h>
 
-BOOL ReadPhaseAndWriteChunks(HANDLE inFile, PTCHAR dir, USHORT chunkMaxSize);
+BOOL AllocateChunks(BYTE ** chunksArray);
 
-BOOL DeleteChunksTempFiles(PTCHAR dir);
+BOOL ReadPhase(HANDLE inFile, BYTE ** chunksArray);
 
-BOOL GatherChunks(HANDLE outFile, PTCHAR dir, USHORT chunkMaxSize);
+BOOL FreeChunks(BYTE ** chunksArray);
+
+BOOL GatherChunks(HANDLE outFile, DWORD phaseSize, BYTE ** chunksArray);
 
 #endif // !FILE_HANDLER_H_
