@@ -2,14 +2,13 @@
 #include <stdio.h>
 #include <tchar.h>
 #include "file_handler.h"
-#include "../Protocol/protocol.h"
 
-BOOL AllocateChunks(BYTE ** chunksArray)
+BOOL AllocateChunks(chunk_t ** chunksArray)
 {
 	DWORD i, j;
 	for (i = 0; i < MAX_CHUNKS; i++)
 	{
-		chunksArray[i] = (BYTE *)malloc(MAX_PSH_DATA);
+		chunksArray[i] = (p_chunk_t)malloc(sizeof(chunk_t));
 		if (!chunksArray[i])
 		{
 			for (j = 0; j < i; j++)
@@ -22,29 +21,28 @@ BOOL AllocateChunks(BYTE ** chunksArray)
 	return TRUE;
 }
 
-BOOL ReadPhase(HANDLE inFile, BYTE ** chunksArray)
+BOOL ReadPhase(HANDLE inFile, chunk_t ** chunksArray)
 {
 	DWORD i;
-	DWORD bytesRead;
 	
 	for (i = 0; i < MAX_CHUNKS; i++)
 	{
-		memset(chunksArray[i], 0, MAX_PSH_DATA);
+		memset(chunksArray[i], 0, sizeof(chunk_t));
 		if (!ReadFile(
 			inFile, // hFile
-			chunksArray[i], // lpBuffer
+			chunksArray[i]->data, // lpBuffer
 			MAX_PSH_DATA, // nNumberOfBytesToRead
-			&bytesRead, // lpNumberOfBytesRead
+			&(chunksArray[i]->chunkSize), // lpNumberOfBytesRead
 			NULL // lpOverlapped
 		))
 		{
-			memset(chunksArray[i], 0, MAX_PSH_DATA);
+			memset(chunksArray[i], 0, sizeof(chunk_t));
 			return FALSE;
 		}
 
-		if (bytesRead == 0)
+		if (chunksArray[i]->chunkSize == 0)
 		{
-			memset(chunksArray[i], 0, MAX_PSH_DATA);
+			memset(chunksArray[i], 0, sizeof(chunk_t));
 			return TRUE;
 		}
 		
@@ -52,41 +50,36 @@ BOOL ReadPhase(HANDLE inFile, BYTE ** chunksArray)
 	return TRUE;
 }
 
-BOOL FreeChunks(BYTE ** chunksArray)
+BOOL FreeChunks(chunk_t ** chunksArray)
 {
 	DWORD i;
 	
 	for (i = 0; i < MAX_CHUNKS; i++)
 	{
-		memset(chunksArray[i], 0, MAX_PSH_DATA);
+		memset(chunksArray[i], 0, sizeof(chunk_t));
 		free(chunksArray[i]);
 	}
 
 	return TRUE;
 }
 
-BOOL GatherChunks(HANDLE outFile, DWORD phaseSize, BYTE ** chunksArray)
+BOOL GatherChunks(HANDLE outFile, BYTE chunksCount, chunk_t ** chunksArray)
 {
 	DWORD i;
-	DWORD bytesToWrite;
 	DWORD bytesWritten;
-	BYTE chunksCount = (phaseSize / MAX_PSH_DATA) + (phaseSize % MAX_PSH_DATA != 0);
 
 	for (i = 0; i < chunksCount; i++)
 	{
-		bytesToWrite = min(phaseSize, MAX_PSH_DATA);
 		if (!WriteFile(
 			outFile, // hFile
-			chunksArray[i], // lpBuffer
-			bytesToWrite, // nNumberOfBytesToWrite
+			chunksArray[i]->data, // lpBuffer
+			chunksArray[i]->chunkSize, // nNumberOfBytesToWrite
 			&bytesWritten, // lpNumberOfBytesWritten
 			NULL // lpOverlapped
-		) || bytesWritten != bytesToWrite)
+		) || bytesWritten != chunksArray[i]->chunkSize)
 		{
 			return FALSE;
 		}
-
-		phaseSize -= bytesToWrite;
 	}
 
 	return TRUE;
