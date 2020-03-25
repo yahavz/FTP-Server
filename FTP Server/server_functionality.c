@@ -1,17 +1,16 @@
 #include "../ClayWorm/clayworm.h"
+#include "../Protocol/protocol.h"
+#include "../File Handler/file_handler.h"
+#include "server_functionality.h"
+#include <WS2tcpip.h>
 #include <Windows.h>
 #include <tchar.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "../Protocol/protocol.h"
-#include "server_functionality.h"
-#include "../File Handler/file_handler.h"
 
 #define CHECK_ACK(a, i) ((a[(i) / 8] & (1 << (7 - ((i) % 8)))) != 0)
 
-#define TEMP_DIR TEXT("server_tmp")
-
-BOOL _ValidateParams(PPARAMS params)
+static BOOL ValidateParams(PPARAMS params)
 {
 	HANDLE dummyFile;
 	IN_ADDR addr = { 0 };
@@ -22,13 +21,13 @@ BOOL _ValidateParams(PPARAMS params)
 		return FALSE;
 	}
 
-	if (params->clientPort < 1)
+	if (params->clientPort < 50000)
 	{
 		_tprintf(TEXT("Error: the client port is invalid!\n"));
 		return FALSE;
 	}
 
-	if (params->listenPort < 1)
+	if (params->listenPort < 50000)
 	{
 		_tprintf(TEXT("Error: the listen port is invalid!\n"));
 		return FALSE;
@@ -56,7 +55,7 @@ BOOL _ValidateParams(PPARAMS params)
 
 }
 
-DWORD _ChunksCountOfFile(HANDLE file)
+static DWORD ChunksCountOfFile(HANDLE file)
 {
 	unsigned long long fileSize = 0;
 	unsigned long long numberOfChunks = 0;
@@ -89,9 +88,9 @@ DWORD _ChunksCountOfFile(HANDLE file)
 	return (DWORD)numberOfChunks;
 }
 
-DWORD _PhaseCountOfFile(HANDLE file)
+static DWORD PhaseCountOfFile(HANDLE file)
 {
-	DWORD numberOfChunks = _ChunksCountOfFile(file);
+	DWORD numberOfChunks = ChunksCountOfFile(file);
 	if ((numberOfChunks == 0) && (GetLastError != 0))
 	{
 		_tprintf(TEXT("Error in getting number of chunks for calculation of number of phases!"));
@@ -102,17 +101,13 @@ DWORD _PhaseCountOfFile(HANDLE file)
 }
 
 
-BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
+BOOL ServerHandshake(ClayWormAddress *clientAddress, DWORD numberOfChunks)
 {
 	syn_packet synPacket = { 0 };
 	synack_packet receivedPacket = { 0 };
 	ClayWormAddress sourceAddr = { 0 };
 	synPacket.headers.type = TYPE_SYN;
-	synPacket.numberOfChunks = _ChunksCountOfFile(file);
-	if ((synPacket.numberOfChunks == 0) && (GetLastError() != 0))
-	{
-		return FALSE;
-	}
+	synPacket.numberOfChunks = numberOfChunks;
 
 	synPacket.headers.crc = crc16(
 		&(synPacket.headers.type), // data
@@ -171,70 +166,34 @@ BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file)
 	return FALSE;
 }
 
-BOOL _SendFrag(ClayWormAddress *clientAddress, DWORD phaseIndex, BYTE fragIndex)
+static BOOL SendFrag(ClayWormAddress *clientAddress, chunk_t ** chunksArray, DWORD phaseIndex, BYTE fragIndex)
 {
-	HANDLE fragFile;
-	USHORT bytesRead;
-	TCHAR fragFileName[MAX_PATH] = { 0 };
-	BYTE fragData[MAX_PSH_DATA] = { 0 };
-	BYTE packetAsBytes[MAX_PACKET] = { 0 };
-	p_psh_packet pshPacket = (p_psh_packet)packetAsBytes;
-	_stprintf_s(fragFileName, MAX_PATH, TEXT("%s\\%u.tmp"), TEMP_DIR, fragIndex);
-	
-	fragFile = CreateFile(
-		fragFileName, // lpFileName
-		GENERIC_READ, // dwDesiredAccess
-		0, // dwShareMode
-		NULL, // lpSecurityAttributes
-		OPEN_EXISTING, // dwCreationDisposition
-		0, // dwFlagsAndAttributes
-		NULL // hTemplateFile
+	psh_packet pshPacket = { 0 };	
+
+	pshPacket.pshHeaders.headers.type = TYPE_PSH;
+	pshPacket.pshHeaders.fragIndex = fragIndex;
+	pshPacket.pshHeaders.fragPhase = phaseIndex;
+	pshPacket.pshHeaders.fragSize = chunksArray[fragIndex]->chunkSize;
+	memcpy(pshPacket.data, chunksArray[fragIndex]->data, chunksArray[fragIndex]->chunkSize);
+
+	pshPacket.pshHeaders.headers.crc = crc16(
+		&(pshPacket.pshHeaders.headers.type), // data
+		PSH_HEADERS_SIZE + pshPacket.pshHeaders.fragSize - CRC_SIZE // size
 	);
 
-	if (fragFile == INVALID_HANDLE_VALUE)
-	{
-		if (GetLastError() == ERROR_FILE_NOT_FOUND)
-		{
-			return TRUE;
-		}
-
-		return FALSE;
-	}
-
-	if (!ReadFile(
-		fragFile, // hFile
-		fragData, // lpBuffer
-		MAX_PSH_DATA, // nNumberOfBytesToRead
-		(DWORD *)&bytesRead, // nNumberOfBytesRead
-		NULL // lpOverlapped
+	if (!ClayWorm_Send(
+		(uint8_t *)&pshPacket, 
+		PSH_HEADERS_SIZE + pshPacket.pshHeaders.fragSize, 
+		clientAddress
 	))
 	{
-		CloseHandle(fragFile);
-		return FALSE;
-	}
-
-	pshPacket->headers.type = TYPE_PSH;
-	pshPacket->fragIndex = fragIndex;
-	pshPacket->fragPhase = phaseIndex;
-	pshPacket->fragSize = bytesRead;
-	memcpy(packetAsBytes + PSH_PACKET_SIZE, fragData, bytesRead);
-
-	pshPacket->headers.crc = crc16(
-		&(pshPacket->headers.type), // data
-		PSH_PACKET_SIZE + bytesRead - CRC_SIZE // size
-	);
-
-	if (!ClayWorm_Send((uint8_t *)pshPacket, PSH_PACKET_SIZE + bytesRead, clientAddress))
-	{
-		CloseHandle(fragFile);
 		return FALSE;
 	}
 	
-	CloseHandle(fragFile);
 	return TRUE;
 }
 
-BOOL _SendEOP(ClayWormAddress *clientAddress, DWORD phaseIndex)
+static BOOL SendEOP(ClayWormAddress *clientAddress, DWORD phaseIndex)
 {
 	eop_packet eopPacket = { 0 };
 
@@ -252,7 +211,7 @@ BOOL _SendEOP(ClayWormAddress *clientAddress, DWORD phaseIndex)
 	return TRUE;
 }
 
-BOOL _IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE])
+static BOOL IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE])
 {
 	int i;
 	for (i = 0; i < ACK_BITFIELD_SIZE ; i++)
@@ -267,28 +226,21 @@ BOOL _IsPhaseCompleted(BYTE ackField[ACK_BITFIELD_SIZE])
 	return TRUE;
 }
 
-BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
+BOOL SendFile(ClayWormAddress *clientAddress, DWORD numberOfPhases, DWORD numberOfChunks, HANDLE file)
 {
 	DWORD currentPhase;
 	BYTE currentFrag;
-	DWORD numberOfPhases;
 	DWORD firstPhaseEOPTime;
-	DWORD numberOfChunks;
+	BOOL firstRun;
 	
 	
+	p_chunk_t chunksArray[MAX_CHUNKS] = { 0 };
 	BOOL packetFound = FALSE;
 	ClayWormAddress sourceAddr = { 0 };
 	eopack_packet eopackPacket = { 0 };
 	BYTE ackArray[ACK_BITFIELD_SIZE] = { 0 };
 
-	numberOfPhases = _PhaseCountOfFile(file);
-	if ((numberOfPhases == 0) && (GetLastError() != 0))
-	{
-		return FALSE;
-	}
-
-	numberOfChunks = _ChunksCountOfFile(file);
-	if ((numberOfChunks == 0) && (GetLastError() != 0))
+	if (!AllocateChunks(chunksArray))
 	{
 		return FALSE;
 	}
@@ -297,41 +249,34 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 	{
 		
 		memset(&ackArray, 0, sizeof(ackArray));
-		
-		if (!CreateDirectory(
-			TEMP_DIR, // lpPathName
-			NULL // lpSecurityAttributes
-		))
-		{
-			if (GetLastError() != ERROR_ALREADY_EXISTS)
-			{
-				return FALSE;
-			}
-		}
 
-		if (!ReadPhaseAndWriteChunks(file, TEMP_DIR, MAX_PSH_DATA))
+		if (!ReadPhase(file, chunksArray))
 		{
 			return FALSE;
 		}
 
-		while (!_IsPhaseCompleted((BYTE *)&ackArray))
+		firstRun = TRUE;
+
+		while (!IsPhaseCompleted((BYTE *)&ackArray))
 		{
 			for (currentFrag = 0; currentFrag < min(numberOfChunks, MAX_CHUNKS); currentFrag++)
 			{
 				// check if the frag was ACKed before
-				
-				if (CHECK_ACK(ackArray, currentFrag))
+
+				if (firstRun || CHECK_ACK(ackArray, currentFrag))
 				{
 					continue;
 				}
 				
-				if (!_SendFrag(clientAddress, currentPhase, currentFrag))
+				if (!SendFrag(clientAddress, chunksArray, currentPhase, currentFrag))
 				{
-					DeleteChunksTempFiles(TEMP_DIR);
+					FreeChunks(chunksArray);
 					return FALSE;
 				}
 				
 			}
+
+			firstRun = FALSE;
 
 			firstPhaseEOPTime = GetTickCount();
 
@@ -340,13 +285,13 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 				if (GetTickCount() - firstPhaseEOPTime >= PROTOCOL_TIMEOUT)
 				{
 					_tprintf(TEXT("Timeout exceeded! The client is not up probably."));
-					DeleteChunksTempFiles(TEMP_DIR);
+					FreeChunks(chunksArray);
 					return FALSE;
 				}
 
-				if (!_SendEOP(clientAddress, currentPhase))
+				if (!SendEOP(clientAddress, currentPhase))
 				{
-					DeleteChunksTempFiles(TEMP_DIR);
+					FreeChunks(chunksArray);
 					return FALSE;
 				}
 
@@ -401,8 +346,6 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 
 			}
 
-			
-
 			memcpy(
 				ackArray,
 				&(eopackPacket.ackField),
@@ -411,8 +354,9 @@ BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file)
 		}
 
 		numberOfChunks -= currentFrag;
-		DeleteChunksTempFiles(TEMP_DIR);
 	}
+
+	FreeChunks(chunksArray);
 	
 	return TRUE;
 }
@@ -464,18 +408,17 @@ BOOL Finish(ClayWormAddress *clientAddress)
 BOOL HandleServer(PPARAMS params)
 {
 	HANDLE fileToSend;
-	USHORT portToListen;
-	BOOL returnValue = FALSE;
+	DWORD numberOfChunks;
+	DWORD numberOfPhases;
+
 	ClayWormAddress clientAddress = { 0 };
 	
-	if (!_ValidateParams(params))
+	if (!ValidateParams(params))
 	{
 		return FALSE;
 	}
 
-	portToListen = params->listenPort;
-
-	if (!ClayWorm_Initialize(portToListen))
+	if (!ClayWorm_Initialize(params->listenPort))
 	{
 		return FALSE;
 	}
@@ -505,14 +448,30 @@ BOOL HandleServer(PPARAMS params)
 		return FALSE;
 	}
 
-	if (!ServerHandshake(&clientAddress, fileToSend))
+	numberOfChunks = ChunksCountOfFile(fileToSend);
+	if ((numberOfChunks == 0) && (GetLastError()))
 	{
 		CloseHandle(fileToSend);
 		ClayWorm_Cleanup();
 		return FALSE;
 	}
 
-	if (!SendFile(&clientAddress, fileToSend))
+	numberOfPhases = PhaseCountOfFile(fileToSend);
+	if ((numberOfPhases == 0) && (GetLastError()))
+	{
+		CloseHandle(fileToSend);
+		ClayWorm_Cleanup();
+		return FALSE;
+	}
+
+	if (!ServerHandshake(&clientAddress, numberOfChunks))
+	{
+		CloseHandle(fileToSend);
+		ClayWorm_Cleanup();
+		return FALSE;
+	}
+
+	if (!SendFile(&clientAddress, numberOfPhases, numberOfChunks, fileToSend))
 	{
 		CloseHandle(fileToSend);
 		ClayWorm_Cleanup();

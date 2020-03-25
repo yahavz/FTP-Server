@@ -1,7 +1,7 @@
-#include "../ClayWorm/clayworm.h"
-#include "../Protocol/protocol.h"
+#ifndef SERVER_H_
+#define SERVER_H_
 
-#define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
+#include "../ClayWorm/clayworm.h"
 
 typedef struct {
 	LPTSTR clientIP;
@@ -10,10 +10,12 @@ typedef struct {
 	LPTSTR filePath;
 } PARAMS, *PPARAMS;
 
-BOOL ServerHandshake(ClayWormAddress *clientAddress, HANDLE file);
+BOOL ServerHandshake(ClayWormAddress *clientAddress, DWORD numberOfChunks);
 
-BOOL SendFile(ClayWormAddress *clientAddress, HANDLE file);
+BOOL SendFile(ClayWormAddress *clientAddress, DWORD numberOfPhases, DWORD numberOfChunks, HANDLE file);
 
 BOOL Finish(ClayWormAddress *clientAddress);
 
 BOOL HandleServer(PPARAMS params);
+
+#endif // !SERVER_H_
