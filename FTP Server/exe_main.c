@@ -105,7 +105,7 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
 		case 0: // serverThread (and optionaly g_ServiceStopEvent) is signaled
 			if (WaitForSingleObject(g_ServiceStopEvent, 0) == WAIT_OBJECT_0)
 			{
-				return 0;
+				return ERROR_SUCCESS;
 			}
 
 			if (!GetExitCodeThread(serverThread, (DWORD *)&exitCode))
@@ -115,10 +115,10 @@ DWORD WINAPI ServiceWorkerThread(LPVOID lpParam)
 
 			if (!exitCode)
 			{
-				return 1;
+				return ERROR_UNIDENTIFIED_ERROR;
 			}
 			
-			continue;
+			break;
 		
 		case 1: // g_ServiceStopEvent is signaled
 			TerminateThread(serverThread, ERROR_SERVICE_DISABLED);
@@ -234,6 +234,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 
 	if (SetServiceStatus(g_StatusHandle, &g_ServiceStatus) == FALSE)
 	{
+		CloseHandle(g_ServiceStopEvent);
 		return;
 	}
 
@@ -248,6 +249,7 @@ VOID WINAPI ServiceMain(DWORD argc, LPTSTR *argv)
 
 	if (hThread == NULL)
 	{
+		CloseHandle(g_ServiceStopEvent);
 		return;
 	}
 
