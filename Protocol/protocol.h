@@ -21,12 +21,13 @@
 #define PACKET_HEADERS_SIZE (sizeof(packet_headers))
 #define SYN_PACKET_SIZE (sizeof(syn_packet))
 #define SYNACK_PACKET_SIZE (sizeof(synack_packet))
-#define PSH_PACKET_SIZE (sizeof(psh_packet))
+#define PSH_HEADERS_SIZE (sizeof(psh_headers))
+#define PSH_PACKET_SIZE (MAX_PACKET)
 #define EOP_PACKET_SIZE (sizeof(eop_packet))
 #define EOPACK_PACKET_SIZE (sizeof(eopack_packet))
 #define FIN_PACKET_SIZE (sizeof(fin_packet))
 
-#define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
+#define MAX_PSH_DATA (PSH_PACKET_SIZE - PSH_HEADERS_SIZE)
 
 #pragma pack(1)
 
@@ -51,6 +52,10 @@ typedef struct {
 	DWORD fragPhase;
 	BYTE fragIndex;
 
+} psh_headers, *p_psh_headers;
+
+typedef struct {
+	psh_headers pshHeaders;
 	BYTE data[MAX_PSH_DATA];
 
 } psh_packet, *p_psh_packet;
