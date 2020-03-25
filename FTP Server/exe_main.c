@@ -34,13 +34,13 @@ BOOL ValidateParams(DWORD argc, LPTSTR * argv)
 		return FALSE;
 	}
 
-	if (atoi(argv[2]) <= 0 || atoi(argv[2]) > 65535)
+	if (atoi(argv[2]) < 50000 || atoi(argv[2]) > 65535)
 	{
 		OutputDebugString(TEXT("Error: the client port is invalid!\n"));
 		return FALSE;
 	}
 
-	if (atoi(argv[3]) <= 0 || atoi(argv[3]) > 65535)
+	if (atoi(argv[3]) < 50000 || atoi(argv[3]) > 65535)
 	{
 		OutputDebugString(TEXT("Error: the listen port is invalid!\n"));
 		return FALSE;
