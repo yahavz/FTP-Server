@@ -1,6 +1,7 @@
 #ifndef PROTOCOL_H_
 #define PROTOCOL_H_
 
+#include "../ClayWorm/clayworm.h"
 #include <Windows.h>
 
 #define TYPE_SYN 0x1
@@ -13,7 +14,7 @@
 
 #define MAX_CHUNKS (128)
 #define MAX_PHASE_INDEX ((MAXDWORD / 128) - 1)
-#define ACK_BITFIELD_SIZE (MAX_CHUNKS / 8)
+#define ACK_BITFIELD_SIZE ((MAX_CHUNKS / 8) + (MAX_CHUNKS % 8 != 0))
 #define CRC_SIZE (sizeof(((p_packet_headers)0)->crc))
 #define PROTOCOL_TIMEOUT (30000) // in milliseconds
 
@@ -25,7 +26,10 @@
 #define EOPACK_PACKET_SIZE (sizeof(eopack_packet))
 #define FIN_PACKET_SIZE (sizeof(fin_packet))
 
+#define MAX_PSH_DATA (MAX_PACKET - PSH_PACKET_SIZE)
+
 #pragma pack(1)
+
 
 typedef struct {
 	USHORT crc;
@@ -47,7 +51,7 @@ typedef struct {
 	DWORD fragPhase;
 	BYTE fragIndex;
 
-	/* Here comes the data of the fragment*/
+	BYTE data[MAX_PSH_DATA];
 
 } psh_packet, *p_psh_packet;
 
@@ -67,6 +71,15 @@ typedef struct {
 } fin_packet, *p_fin_packet;
 
 #pragma pack()
+
+typedef union {
+	syn_packet asSYN;
+	synack_packet asSYNACK;
+	psh_packet asPSH;
+	eop_packet asEOP;
+	eopack_packet asEOPACK;
+	fin_packet asFIN;
+}dynamic_packet, *p_dynamic_packet;
 
 USHORT crc16(const BYTE *data, USHORT size);
 
